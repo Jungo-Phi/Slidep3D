@@ -32,7 +32,7 @@ Le prototype est isolé du reste de l'application et n'a **aucune physique**.
 | Framework | Svelte 5 |
 | Moteur 3D | Threlte 8 (Three.js). Passer par Three.js directement là où la performance compte (par exemple `InstancedMesh` pour les poutres) |
 | Axe vertical | Z vers le haut (régler `camera.up` et `Object3D.DEFAULT_UP` en conséquence) |
-| Projection | Orthographique par défaut, perspective au choix (bascule sous le cube, touche P). Les deux partagent la même pose : basculer garde le cadrage |
+| Projection | Toujours orthographique |
 | Plan actif par défaut | Plan des 3 derniers nœuds placés. S'il y en a moins de 3, ou s'ils sont alignés : le plan XY, XZ ou YZ le plus face à la caméra, passant par le dernier nœud. En vue alignée, voir « Vue alignée sur un plan » |
 | Souris | Clic droit pour orbiter, molette appuyée ou scroll trackpad horizontal/vertical pour déplacer, molette pour zoomer vers le curseur (style Onshape, utilisable au pavé tactile) |
 | Unités et grille | mm, pas de 10 mm, grille adaptative qui s'affine quand on zoome |
@@ -90,7 +90,7 @@ Quand la caméra regarde dans l'axe (à moins de 15° d'un axe : vue de dessus, 
 | chiffres + Entrée | longueur exacte (mm) dans la direction visée |
 | Échap | voir « Tracer » |
 | L / V | outil Poutre / Sélection |
-| H, F, P | vue Maison, cadrer, bascule perspective ↔ orthographique |
+| H, F | vue Maison, cadrer |
 | Suppr | supprime la sélection |
 | Ctrl+Z, Ctrl+Y | annuler, rétablir |
 

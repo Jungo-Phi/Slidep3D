@@ -285,8 +285,8 @@
     top: 0;
     padding: 0;
     border: none;
-    color: #334155;
-    font: 600 11px system-ui, sans-serif;
+    color: #001d59;
+    font: 600 11px 'Source Sans 3', 'Source Sans Pro', 'Helvetica', 'Arial', sans-serif;
     backface-visibility: hidden;
     cursor: pointer;
     user-select: none;
@@ -295,17 +295,18 @@
     justify-content: center;
   }
   .face {
-    background: #f1f5f9;
-    box-shadow: inset 0 0 0 1px #94a3b8;
+    background: #fff3d6;
+    box-shadow: inset 0 0 0 1px #cbaa80;
   }
   .edge {
-    background: #cbd5e1;
+    background: #fdcda0;
   }
   .corner {
-    background: #94a3b8;
+    background: #e4b081;
   }
   .piece.hovered {
-    background: #fbbf24;
+    background: #d7530b;
+    color: #ffffff;
   }
   /* Repère partant du coin (−X, −Y, −Z) du cube. Coordonnées monde dans .cube. */
   .axis {

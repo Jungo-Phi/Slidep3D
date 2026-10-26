@@ -23,7 +23,7 @@ import {
 } from 'three'
 import { ALIGN_DEG } from '../core/placement'
 import type { Axis, Vec3 } from '../core/vec'
-import { AXIS_COLORS } from './colors'
+import { AXIS_COLORS, COLORS } from './colors'
 
 const vertexShader = /* glsl */ `
   uniform vec3 uU;
@@ -113,7 +113,7 @@ class PlaneGrid {
         uOpacity: { value: 1 },
         uFine: { value: 1 },
         uCenter: { value: new Vector2() },
-        uColor: { value: new Color('#7c8594') },
+        uColor: { value: new Color(COLORS.grid) },
         uColorU: { value: new Color(AXIS_COLORS[u]) },
         uColorV: { value: new Color(AXIS_COLORS[v]) },
       },

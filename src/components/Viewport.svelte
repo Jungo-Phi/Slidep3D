@@ -8,7 +8,7 @@
   import { DEFAULT_TOLERANCES, pickNode, pickSegment } from '../lib/core/placement'
   import { type Axis, type Vec2, type Vec3, AXES, AXIS_DIR, add, pointSegment2, scale } from '../lib/core/vec'
   import type { Editor } from '../lib/editor.svelte'
-  import { CameraController, type Projection } from '../lib/three/cameraController'
+  import { CameraController } from '../lib/three/cameraController'
   import { COLORS } from '../lib/three/colors'
   import { Grid } from '../lib/three/grid'
   import { Overlay, gizmoLength } from '../lib/three/overlay'
@@ -17,14 +17,16 @@
 
   interface Props {
     editor: Editor
-    projection: Projection
     controller?: CameraController
     oncamera?: (quaternion: [number, number, number, number]) => void
-    /** Position écran du centre de la sélection (pour afficher ses coordonnées), null s'il n'y en a pas. */
-    onselectionscreen?: (p: Vec2 | null) => void
+    /**
+     * Position écran du centre de la sélection (pour afficher ses coordonnées), null s'il n'y en a pas,
+     * et le quadrant autour de lui qu'aucune flèche du gizmo ne traverse (signes x, y écran).
+     */
+    onselectionscreen?: (s: { at: Vec2; side: Vec2 } | null) => void
   }
 
-  let { editor, projection, controller = $bindable(), oncamera, onselectionscreen }: Props = $props()
+  let { editor, controller = $bindable(), oncamera, onselectionscreen }: Props = $props()
 
   const { invalidate, canvas, scene: threeScene, size: canvasSize } = useThrelte()
   threeScene.background = new Color(COLORS.background)
@@ -58,6 +60,7 @@
       return boundsOf([...editor.scene.nodes.values()].map((n) => [n.x, n.y, n.z] as const))
     },
     onChange() {
+      meshes.setPixelSize(ctrl.worldPerPixel([0, 0, 0]))
       updateGrid()
       if (lastCursor && !ctrl.busy) editor.update(viewAt(lastCursor))
       drawOverlay()
@@ -72,12 +75,11 @@
   // Premier cadrage, une fois la taille du canevas connue.
   requestAnimationFrame(() => ctrl.resetHome())
 
-  $effect(() => ctrl.setProjection(projection))
-
   // Redimensionnement : Threlte recalcule le cadre des caméras, on réapplique la pose.
   $effect(() =>
     canvasSize.subscribe(() => {
       ctrl.sync()
+      meshes.setPixelSize(ctrl.worldPerPixel([0, 0, 0]))
       drawOverlay()
       invalidate()
     }),
@@ -106,9 +108,23 @@
       const b = project(add(c, scale(AXIS_DIR[axis], length)))
       if (!b) continue
       const { d, t } = pointSegment2(cursor, a, b)
-      if (d < 10 && t > 0.12 && (!best || d < best.d)) best = { axis, d }
+      if (d < 12 && t > 0.12 && (!best || d < best.d)) best = { axis, d }
     }
     return best?.axis ?? null
+  }
+
+  const QUADRANTS: Vec2[] = [[1, 1], [1, -1], [-1, 1], [-1, -1]]
+
+  /** Le premier quadrant, en bas à droite de préférence, où ne passe aucune flèche du gizmo : trois flèches en laissent toujours un. */
+  function freeSide(center: Vec3, at: Vec2, project: (p: Vec3) => Vec2 | null): Vec2 {
+    const length = gizmoLength(pixelSize, center)
+    const ends = AXES.flatMap((a) => {
+      const e = project(add(center, scale(AXIS_DIR[a], length)))
+      return e ? [[e[0] - at[0], e[1] - at[1]]] : []
+    })
+    // Marge de quelques px : une flèche presque sur le bord d'un quadrant y entre déjà par sa pointe.
+    const free = ([sx, sy]: Vec2) => ends.every(([dx, dy]) => !(dx * sx > 4 && dy * sy > 4))
+    return QUADRANTS.find(free) ?? QUADRANTS[0]
   }
 
   function drawOverlay() {
@@ -134,7 +150,9 @@
       pixelSize,
     )
     const { width, height } = size()
-    onselectionscreen?.(center ? projector(ctrl.camera, width, height)(center) : null)
+    const project = projector(ctrl.camera, width, height)
+    const at = center ? project(center) : null
+    onselectionscreen?.(center && at ? { at, side: freeSide(center, at, project) } : null)
   }
 
   // Événements souris -------------------------------------------------------
@@ -248,12 +266,8 @@
   })
 </script>
 
-{#if projection === 'orthographic'}
-  <T is={ctrl.orthographic} makeDefault />
-{:else}
-  <T is={ctrl.perspective} makeDefault />
-{/if}
-<T.HemisphereLight args={['#ffffff', '#b8c0cc', 1.4]} />
+<T is={ctrl.orthographic} makeDefault />
+<T.HemisphereLight args={['#ffffff', COLORS.groundLight, 1.4]} />
 <T.DirectionalLight position={[3000, -5000, 8000]} intensity={1.8} />
 <T.DirectionalLight position={[-4000, 3000, 2000]} intensity={0.5} />
 <T is={grid.object} />

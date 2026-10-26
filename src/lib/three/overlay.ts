@@ -23,8 +23,8 @@ import {
 } from 'three'
 import type { Guide, Snap } from '../core/placement'
 import { type Axis, type Vec3, AXES, AXIS_DIR, add, dist, dot, scale, sub } from '../core/vec'
-import { AXIS_COLORS, COLORS, SNAP_COLORS } from './colors'
-import { BEAM_SIZE } from './sceneMeshes'
+import { AXIS_COLORS, COLORS, SNAP_COLORS, THEME } from './colors'
+import { BEAM_SIZE, EDGE_WIDTH, HOVER_EDGE_WIDTH } from './sceneMeshes'
 
 export interface OverlayState {
   anchor: Vec3 | null
@@ -60,7 +60,31 @@ function clipInFront(d: Dash, eye: NonNullable<OverlayState['eye']>, minDepth: n
 export type PixelSize = (p: Vec3) => number
 
 /** Longueur des flèches du gizmo, en mm. */
-export const gizmoLength = (px: PixelSize, center: Vec3): number => px(center) * 110
+export const gizmoLength = (px: PixelSize, center: Vec3): number => px(center) * GIZMO_PX
+
+/** Longueur des flèches du gizmo, en px écran. Le gizmo est dessiné en unités de cette longueur. */
+const GIZMO_PX = 80
+const SHAFT_R = 3.5 / GIZMO_PX
+const HEAD_R = 10 / GIZMO_PX
+const HEAD_H = 22 / GIZMO_PX
+const SHAFT_LEN = 1 - HEAD_H
+/** Flèche survolée : grossie en section, et son trait épaissi, sans changer de couleur. */
+const HOVER_GROW = 1.25
+
+/**
+ * Tige et pointe d'une flèche dirigée vers +Y, élargies de `w` (en unités du gizmo) dans toutes les directions :
+ * w = 0 donne la flèche, w > 0 son contour, dessiné derrière elle.
+ */
+function arrowParts(w: number): [BufferGeometry, BufferGeometry] {
+  const shaft = new CylinderGeometry(SHAFT_R + w, SHAFT_R + w, SHAFT_LEN + 2 * w, 16)
+  shaft.translate(0, SHAFT_LEN / 2, 0)
+  // Pointe de même angle, décalée de w sur sa base et sur sa pente.
+  const sin = HEAD_R / Math.hypot(HEAD_R, HEAD_H)
+  const h = HEAD_H + w + w / sin
+  const head = new ConeGeometry((h * HEAD_R) / HEAD_H, h, 24)
+  head.translate(0, SHAFT_LEN - w + h / 2, 0)
+  return [shaft, head]
+}
 
 function discTexture(): CanvasTexture {
   const c = document.createElement('canvas')
@@ -85,11 +109,11 @@ function pivotTexture(): CanvasTexture {
     g.strokeStyle = color
     g.stroke()
   }
-  ring(24, 9, '#1f2937')
-  ring(24, 4, '#f59e0b')
+  ring(24, 9, THEME.ink)
+  ring(24, 4, THEME.accent)
   g.beginPath()
   g.arc(32, 32, 6, 0, Math.PI * 2)
-  g.fillStyle = '#1f2937'
+  g.fillStyle = THEME.ink
   g.fill()
   return new CanvasTexture(c)
 }
@@ -118,7 +142,7 @@ export class Overlay {
   private shadow: Points
   private pivot: Points
   private gizmo = new Group()
-  private arrows = {} as Record<Axis, { group: Group; materials: MeshBasicMaterial[] }>
+  private arrows = {} as Record<Axis, { group: Group; body: Mesh[]; outline: Mesh[]; hoverOutline: Mesh[] }>
 
   constructor() {
     this.object.name = 'overlay'
@@ -146,20 +170,23 @@ export class Overlay {
   }
 
   private buildGizmo(): void {
-    const shaft = new CylinderGeometry(0.018, 0.018, 0.8, 10)
-    shaft.translate(0, 0.4, 0)
-    const head = new ConeGeometry(0.07, 0.22, 16)
-    head.translate(0, 0.89, 0)
+    const body = arrowParts(0)
+    const outline = arrowParts(EDGE_WIDTH / GIZMO_PX)
+    const hoverOutline = arrowParts(HOVER_EDGE_WIDTH / GIZMO_PX)
+    const ink = new MeshBasicMaterial({ ...onTop, color: THEME.ink })
     for (const axis of AXES) {
-      const materials = [0, 1].map(() => new MeshBasicMaterial({ ...onTop, color: AXIS_COLORS[axis] }))
-      const group = new Group()
-      group.add(new Mesh(shaft, materials[0]), new Mesh(head, materials[1]))
+      const material = new MeshBasicMaterial({ ...onTop, color: AXIS_COLORS[axis] })
+      const arrow = {
+        group: new Group(),
+        body: body.map((g) => new Mesh(g, material)),
+        outline: outline.map((g) => new Mesh(g, ink)),
+        hoverOutline: hoverOutline.map((g) => new Mesh(g, ink)),
+      }
+      arrow.group.add(...arrow.outline, ...arrow.hoverOutline, ...arrow.body)
       // Les géométries pointent vers +Y : on les tourne vers l'axe voulu.
-      group.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), new Vector3(...AXIS_DIR[axis]))
-      group.renderOrder = 20
-      group.traverse((o) => (o.renderOrder = 20))
-      this.gizmo.add(group)
-      this.arrows[axis] = { group, materials }
+      arrow.group.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), new Vector3(...AXIS_DIR[axis]))
+      this.gizmo.add(arrow.group)
+      this.arrows[axis] = arrow
     }
   }
 
@@ -185,7 +212,7 @@ export class Overlay {
 
     // Point visé.
     setPositions(this.marker.geometry, [target])
-    ;(this.marker.material as PointsMaterial).color.set(s.typed ? '#111827' : SNAP_COLORS[snap.kind])
+    ;(this.marker.material as PointsMaterial).color.set(s.typed ? THEME.ink : SNAP_COLORS[snap.kind])
     this.marker.visible = true
 
     // Ligne en cours, en volume pour lire l'orientation, et en trait par-dessus tout.
@@ -272,8 +299,14 @@ export class Overlay {
     this.gizmo.scale.setScalar(gizmoLength(px, g.center))
     for (const axis of AXES) {
       const lit = g.active === axis || (!g.active && g.hover === axis)
-      for (const m of this.arrows[axis].materials) m.color.set(lit ? COLORS.hover : AXIS_COLORS[axis])
-      this.arrows[axis].group.visible = !g.active || g.active === axis
+      const a = this.arrows[axis]
+      a.group.visible = !g.active || g.active === axis
+      a.group.scale.set(lit ? HOVER_GROW : 1, 1, lit ? HOVER_GROW : 1)
+      for (const m of a.outline) m.visible = !lit
+      for (const m of a.hoverOutline) m.visible = lit
+      // Tous les contours sous toutes les flèches ; la flèche survolée, contour compris, par-dessus les autres.
+      for (const m of [...a.outline, ...a.hoverOutline]) m.renderOrder = lit ? 22 : 20
+      for (const m of a.body) m.renderOrder = lit ? 23 : 21
     }
   }
 }

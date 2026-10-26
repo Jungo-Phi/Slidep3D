@@ -6,15 +6,14 @@
   import { planeLabel } from './lib/core/placement'
   import type { Axis, Vec2, Vec3 } from './lib/core/vec'
   import { Editor, STEP, type Tool } from './lib/editor.svelte'
-  import type { CameraController, Projection } from './lib/three/cameraController'
+  import type { CameraController } from './lib/three/cameraController'
   import { AXIS_COLORS } from './lib/three/colors'
 
   const editor = new Editor()
   let controller = $state<CameraController>()
   let camQuat = $state<[number, number, number, number]>([0, 0, 0, 1])
-  let projection = $state<Projection>('orthographic')
   let showHelp = $state(false)
-  let selectionScreen = $state.raw<Vec2 | null>(null)
+  let selectionScreen = $state.raw<{ at: Vec2; side: Vec2 } | null>(null)
   let fileInput: HTMLInputElement
 
   const onCamera = (q: [number, number, number, number]) => (camQuat = q)
@@ -22,7 +21,6 @@
   const viewFrom = (dir: Vec3) => controller?.viewFrom(dir)
   const frame = () => controller?.frame()
   const home = () => controller?.home()
-  const toggleProjection = () => (projection = projection === 'perspective' ? 'orthographic' : 'perspective')
   const counts = $derived.by(() => {
     void editor.version
     return { nodes: editor.scene.nodes.size, segments: editor.scene.segments.size }
@@ -128,9 +126,6 @@
       case 'KeyH':
         home()
         break
-      case 'KeyP':
-        toggleProjection()
-        break
     }
   }
 
@@ -170,7 +165,7 @@
     <strong class="brand">Slidep 3D <span>prototype</span></strong>
     <div class="group">
       {#each tools as t (t.id)}
-        <button class:active={editor.tool === t.id} onclick={() => editor.setTool(t.id)} title="{t.label} ({t.key})">
+        <button class:active={editor.tool === t.id} class:selecting={t.id === 'select'} onclick={() => editor.setTool(t.id)} title="{t.label} ({t.key})">
           {t.label}
         </button>
       {/each}
@@ -192,14 +187,15 @@
       <button onclick={() => editor.undo()} disabled={!editor.canUndo} title="Annuler (Ctrl+Z)">Annuler</button>
       <button onclick={() => editor.redo()} disabled={!editor.canRedo} title="Rétablir (Ctrl+Y)">Rétablir</button>
     </div>
-    <button class:active={showHelp} onclick={() => (showHelp = !showHelp)}>Aide</button>
+    <div class="group">
+      <button class:active={showHelp} onclick={() => (showHelp = !showHelp)}>Aide</button>
+    </div>
   </header>
 
   <main class="stage">
     <Canvas toneMapping={NoToneMapping} renderMode="on-demand">
       <Viewport
         {editor}
-        {projection}
         bind:controller
         oncamera={onCamera}
         onselectionscreen={(p) => (selectionScreen = p)}
@@ -235,7 +231,14 @@
     {#if selectionScreen && editor.tool === 'select' && editor.gizmoCenter}
       {@const ids = editor.selectedNodeIds}
       {@const center = editor.gizmoCenter}
-      <div class="tip editable" style:left="{selectionScreen[0] + 16}px" style:top="{selectionScreen[1] + 16}px">
+      {@const { at, side } = selectionScreen}
+      <!-- Placée dans le quadrant libre de flèches, pour ne jamais masquer le gizmo. -->
+      <div
+        class="tip editable"
+        style:left="{at[0] + 20 * side[0]}px"
+        style:top="{at[1] + 20 * side[1]}px"
+        style:transform="translate({side[0] < 0 ? '-100%' : '0'}, {side[1] < 0 ? '-100%' : '0'})"
+      >
         <div class="label">{ids.length === 1 ? `Nœud ${ids[0]}` : `Centre de ${ids.length} nœuds`}</div>
         <div class="coords">
           {#each ['x', 'y', 'z'] as const as a, i (a)}
@@ -263,18 +266,6 @@
         onorbit={(dx, dy) => controller?.cubeOrbitMove(dx, dy)}
         onorbitend={() => controller?.cubeOrbitEnd()}
       />
-      <div class="segmented" role="group" aria-label="Projection">
-        <button
-          class:active={projection === 'perspective'}
-          onclick={() => (projection = 'perspective')}
-          title="Projection perspective (P)">Perspective</button
-        >
-        <button
-          class:active={projection === 'orthographic'}
-          onclick={() => (projection = 'orthographic')}
-          title="Projection orthographique (P)">Ortho</button
-        >
-      </div>
     </div>
 
     {#if editor.message}
@@ -299,7 +290,7 @@
           <li><b>Tab</b> force le plan XY → XZ → YZ → auto</li>
           <li><b>chiffres + Entrée</b> longueur exacte en mm</li>
           <li><b>L</b> Poutre, <b>V</b> Sélection</li>
-          <li><b>H</b> vue Maison, <b>F</b> cadrer, <b>P</b> perspective ↔ ortho</li>
+          <li><b>H</b> vue Maison et <b>F</b> cadrer</li>
           <li>Cube : clic sur une face, une arête ou un coin pour regarder la scène de là, cadrée</li>
           <li><b>Suppr</b> supprime, <b>Ctrl+Z / Ctrl+Y</b> annule, rétablit</li>
           <li><b>Ctrl+S</b> enregistre la scène en JSON, <b>Ctrl+O</b> en ouvre une</li>
@@ -341,13 +332,39 @@
 </div>
 
 <style>
+  /* Thème « Slidep clair » de Slidep (`slidep-light`), mêmes teintes que `lib/three/colors.ts`. */
+  :global(:root) {
+    color-scheme: light;
+    --accent: #d7530b;
+    --accent-dark: #9c4211;
+    --ink: #001d59;
+    --ink-soft: rgba(0, 29, 89, 0.7);
+    --ink-faint: rgba(0, 29, 89, 0.38);
+    --paper: #fff3d6;
+    --ground: #fdecc9;
+    --toolbar: #fdcda0;
+    --selection: #7190e5;
+    --selection-dark: #3f63c8;
+    --divider-paper: #ccc2ab;
+    --divider-toolbar: #caa480;
+    --hover: rgba(0, 0, 0, 0.1);
+    --shadow: 4px 4px 4px rgba(0, 0, 0, 0.2);
+    --error: #d32f2f;
+  }
   :global(html, body) {
     margin: 0;
     height: 100%;
     overflow: hidden;
-    font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
-    color: #1f2937;
-    background: #eef1f5;
+    font: 14px/1.4 'Source Sans 3', 'Source Sans Pro', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+    color: var(--ink);
+    background: var(--ground);
+  }
+  :global(::selection) {
+    background: rgba(215, 83, 11, 0.2);
+  }
+  :global(:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   :global(#app) {
     height: 100%;
@@ -362,49 +379,78 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 6px 10px;
-    background: #fff;
-    border-bottom: 1px solid #d6dbe3;
+    padding: 4px 8px;
+    min-height: 32px;
+    background: var(--toolbar);
     user-select: none;
   }
   .status {
-    border-top: 1px solid #d6dbe3;
-    border-bottom: none;
+    min-height: 0;
+    padding: 3px 10px;
+    background: var(--paper);
+    border-top: 1px solid var(--divider-paper);
     gap: 18px;
-    color: #4b5563;
-    font-size: 12px;
+    color: var(--ink-soft);
+    font-size: 13px;
+  }
+  .status b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .brand {
+    font-weight: 700;
+    font-size: 16px;
   }
   .brand span {
     font-weight: 400;
-    color: #6b7280;
+    color: var(--ink-soft);
   }
   .group {
     display: flex;
     gap: 2px;
+    padding-left: 12px;
+    border-left: 1px solid var(--divider-toolbar);
   }
   .spacer {
     flex: 1;
   }
+  /* Le vide qui pousse un groupe à droite le sépare déjà : pas de filet en plus. */
+  .spacer + .group {
+    padding-left: 0;
+    border-left: none;
+  }
   button {
     font: inherit;
+    font-weight: 500;
     padding: 4px 10px;
-    border: 1px solid #cbd2dc;
-    background: #f8fafc;
-    border-radius: 5px;
+    color: var(--ink);
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 6px;
     cursor: pointer;
+    transition: background-color 0.15s ease;
   }
   button:hover:not(:disabled) {
-    background: #eef2f7;
+    background: var(--hover);
   }
   button:disabled {
-    opacity: 0.45;
+    opacity: 0.3;
     cursor: default;
   }
   button.active,
   button.active:hover:not(:disabled) {
-    background: #2563eb;
-    border-color: #2563eb;
+    background: var(--accent);
     color: #fff;
+  }
+  button.active:hover:not(:disabled) {
+    background: var(--accent-dark);
+  }
+  /* Comme la palette de Slidep : l'outil de sélection s'allume en bleu, les outils de tracé en orange. */
+  button.active.selecting {
+    background: var(--selection);
+  }
+  button.active.selecting:hover:not(:disabled) {
+    background: var(--selection-dark);
   }
   .stage {
     position: relative;
@@ -413,13 +459,13 @@
   .tip {
     position: absolute;
     pointer-events: none;
-    padding: 3px 7px;
-    background: rgba(255, 255, 255, 0.92);
-    border: 1px solid #d6dbe3;
-    border-radius: 4px;
-    font-size: 12px;
+    padding: 3px 8px;
+    background: var(--paper);
+    border: 2px solid var(--accent);
+    border-radius: 6px;
+    font-size: 13px;
     white-space: nowrap;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--shadow);
   }
   .tip .label {
     font-weight: 600;
@@ -440,14 +486,14 @@
   .tip.editable input.field {
     width: 62px;
     min-width: 0;
-    color: #111827;
+    color: var(--ink);
     font: inherit;
     text-align: right;
   }
   .tip.editable input.field:focus {
     outline: none;
-    border-color: #2563eb;
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(215, 83, 11, 0.25);
   }
   .length-row {
     display: flex;
@@ -461,23 +507,23 @@
     min-width: 64px;
     padding: 1px 5px;
     background: #fff;
-    border: 1px solid #94a3b8;
-    border-radius: 3px;
-    color: #9ca3af;
+    border: 1px solid var(--divider-paper);
+    border-radius: 4px;
+    color: var(--ink-faint);
     font-variant-numeric: tabular-nums;
   }
   .field.filled {
-    color: #111827;
+    color: var(--ink);
     font-weight: 600;
-    border-color: #2563eb;
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(215, 83, 11, 0.25);
   }
   .caret {
     display: inline-block;
     width: 1px;
-    height: 13px;
+    height: 14px;
     margin-left: 1px;
-    background: #111827;
+    background: var(--ink);
     animation: blink 1s steps(1) infinite;
   }
   @keyframes blink {
@@ -486,7 +532,7 @@
     }
   }
   .tip small {
-    color: #6b7280;
+    color: var(--ink-soft);
     font-weight: 400;
   }
   .cube-slot {
@@ -498,46 +544,42 @@
     align-items: center;
     gap: 6px;
   }
-  .segmented {
-    display: flex;
-  }
-  .segmented button {
-    border-radius: 0;
-    font-size: 12px;
-  }
-  .segmented button:first-child {
-    border-radius: 5px 0 0 5px;
-  }
-  .segmented button:last-child {
-    border-radius: 0 5px 5px 0;
-    margin-left: -1px;
-  }
   .lock b {
-    color: #b45309;
+    color: var(--accent-dark);
   }
   .message {
     position: absolute;
     left: 50%;
     top: 12px;
     transform: translateX(-50%);
-    background: #fee2e2;
-    border-color: #fca5a5;
-    color: #991b1b;
+    background: var(--paper);
+    border: 2px solid var(--error);
+    box-shadow: var(--shadow);
+    color: var(--error);
+  }
+  .message:hover:not(:disabled) {
+    background: #fbe3cf;
   }
   .help {
     position: absolute;
     left: 12px;
     top: 12px;
-    width: 330px;
+    width: 340px;
+    max-height: calc(100% - 24px);
+    overflow-y: auto;
+    box-sizing: border-box;
     padding: 4px 14px 10px;
-    background: rgba(255, 255, 255, 0.96);
-    border: 1px solid #d6dbe3;
+    background: var(--paper);
+    border: 2px solid var(--accent);
     border-radius: 6px;
-    font-size: 12px;
+    box-shadow: var(--shadow);
+    font-size: 13px;
   }
   .help h3 {
     margin: 10px 0 4px;
-    font-size: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
   }
   .help ul,
   .help ol {
